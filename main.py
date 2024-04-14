@@ -1,4 +1,3 @@
-import subprocess
 import threading
 import time
 from enum import Enum
@@ -6,6 +5,7 @@ from threading import Thread
 from mail import send_mail_to_myself
 from infi.systray import SysTrayIcon
 import logging
+from runner import Runner
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(filename='backup-service.log', level=logging.INFO)
@@ -43,34 +43,40 @@ class SyncThread(Thread):
                 icon_update(State.Idle)
     
     def sync(self, source, destination):
-        process = subprocess.Popen(
-            ["rclone/rclone",
-             "copy",
-             "--update",
-             "--transfers", "1",
-             "--checkers", "8",
-             "--contimeout", "60s",
-             "--timeout", "300s",
-             "--retries", "3",
-             "--low-level-retries", "10",
-             "--config", "NUL",
-             "--verbose",
-             "--stats", "1",
-             "--stats-one-line",
-             source,
-             destination],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE)
-        
+        args = ["rclone/rclone",
+                "copy",
+                "--update",
+                "--transfers", "1",
+                "--checkers", "8",
+                "--contimeout", "60s",
+                "--timeout", "300s",
+                "--retries", "3",
+                "--low-level-retries", "10",
+                "--config", "NUL",
+                "--verbose",
+                "--stats", "1",
+                "--stats-one-line",
+                source,
+                destination]
+        runner = Runner(args)
         while not self.canceled:
             time.sleep(1)
-            process.poll()
-            for line in process.stdout.readlines():
+            runner.poll()
+            lines = runner.read_std_out_lines()
+            for line in lines:
+                print(line)
                 logger.info(line)
-            for line in process.stderr.readlines():
+                
+            lines = runner.read_std_err_lines()
+            for line in lines:
+                print(line)
                 logger.error(line)
-            if process.returncode is not None:
-                return process.returncode
+                
+            if runner.is_finished:
+                return runner.return_code
+        
+        runner.kill()
+        return runner.return_code
     
 class IconThread(Thread):
     def __init__(self, state:State):
